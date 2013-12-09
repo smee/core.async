@@ -815,6 +815,9 @@
   unbuffered, but a buf-fn can be supplied which, given a topic,
   creates a buffer with desired properties.
 
+  A non-nil fallback channel will receive all items where there is no
+  subscriber for the respective topic.
+
   Each item is distributed to all subs in parallel and synchronously,
   i.e. each sub must accept before the next item is distributed. Use
   buffering/windowing to prevent slow subs from holding up the pub.
@@ -826,13 +829,15 @@
   topic it should not expect them to be interleaved identically with
   the source."
   ([ch topic-fn] (pub ch topic-fn (constantly nil)))
-  ([ch topic-fn buf-fn]
+  ([ch topic-fn buf-fn] (pub ch topic-fn buf-fn nil))
+  ([ch topic-fn buf-fn fallback-ch]
      (let [mults (atom {}) ;;topic->mult
            ensure-mult (fn [topic]
                          (or (get @mults topic)
                              (get (swap! mults
                                          #(if (% topic) % (assoc % topic (mult (chan (buf-fn topic))))))
                                   topic)))
+           fallback-m (when fallback-ch (mult fallback-ch))
            p (reify
               Mux
               (muxch* [_] ch)
@@ -849,10 +854,12 @@
        (go-loop []
          (let [val (<! ch)]
            (if (nil? val)
-             (doseq [m (vals @mults)]
-               (close! (muxch* m)))
+             (do
+               (doseq [m (vals @mults)]
+                 (close! (muxch* m)))
+               (when fallback-ch (close! fallback-ch)))
              (let [topic (topic-fn val)
-                   m (get @mults topic)]
+                   m (get @mults topic fallback-m)]
                (when m
                  (try
                    (>! (muxch* m) val)

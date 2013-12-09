@@ -258,6 +258,36 @@
       (is (= ["a" "b" "c"]
              (<!! (a/into [] b-strs))))))
 
+  (testing "pub-sub with fallback channel"
+    (let [a-ints (chan 5)
+          a-strs (chan 5)
+          b-ints (chan 5)
+          b-strs (chan 5)
+          fallback (chan 5) 
+          src (chan)
+          p (pub src (fn [x]
+                       (cond 
+                         (string? x) :string
+                         (number? x) :int
+                         (keyword? x) :keyword))
+                 (constantly nil)
+                 fallback)]
+      (sub p :string a-strs)
+      (sub p :string b-strs)
+      (sub p :int a-ints)
+      (sub p :int b-ints)
+      (pipe (a/to-chan [1 "a" :foo 2 "b" :bar 3 "c" :baz]) src)
+      (is (= [1 2 3]
+             (<!! (a/into [] a-ints))))(println "reading b-ints")
+      (is (= [1 2 3]
+             (<!! (a/into [] b-ints))))(println "reading a-strs")
+      (is (= ["a" "b" "c"]
+             (<!! (a/into [] a-strs))))(println "reading b-strs")
+      (is (= ["a" "b" "c"]
+             (<!! (a/into [] b-strs)))) (println "reading fallback") 
+      (is (= [:foo :bar :baz]
+             (<!! (a/into [] fallback))))))
+  
   (testing "unique"
     (is (= [1 2 3 4]
            (<!! (a/into [] (a/unique (a/to-chan [1 1 2 2 3 3 3 3 4])))))))
